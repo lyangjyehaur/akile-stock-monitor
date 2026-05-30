@@ -157,32 +157,39 @@ async def handler(event):
         for chat_id in subs_map[kw]:
             notified.add(chat_id)
 
-    # Send Telegram notifications with rate limiting
+    # Fire notifications as a background task so the handler returns immediately
+    # and Telethon can process the next channel message without delay
+    asyncio.create_task(
+        _send_notifications(product, matched_keywords, order_url, notified)
+    )
+
+
+async def _send_notifications(product, matched_keywords, order_url, notified):
+    """Background task: send all notifications for a restock event."""
     tg_msg = (
         f"<b>AKILE 補貨通知</b>\n\n"
         f"<b>產品:</b> {product}\n"
         f"<b>匹配:</b> {', '.join(matched_keywords)}"
     )
     notified_count = 0
-    # Get all Bark URLs for matching users
     all_bark = db.get_all_bark_urls()
     for chat_id in notified:
-        if notify_telegram(chat_id, tg_msg, button_url=order_url):
+        # Wrap sync HTTP calls in to_thread so they don't block the loop
+        ok = await asyncio.to_thread(notify_telegram, chat_id, tg_msg, order_url)
+        if ok:
             notified_count += 1
-        # Send Bark to user if they set one
         user_bark = all_bark.get(chat_id)
         if user_bark:
-            notify_bark_url(user_bark, "AKILE 補貨！", f"{product}", url=order_url)
-        # Telegram rate limit: ~30 msg/sec, we stay safe at ~20/sec
-        await asyncio.sleep(0.05)
+            await asyncio.to_thread(notify_bark_url, user_bark, "AKILE 補貨！", product, order_url)
+        await asyncio.sleep(0.05)  # rate limit
 
     # Bark for admin
     bark_body = f"{product} 補貨！"
     if order_url:
         bark_body += f"\n{order_url}"
-    notify_bark("AKILE 補貨！", bark_body, url=order_url)
+    await asyncio.to_thread(notify_bark, "AKILE 補貨！", bark_body, order_url)
 
-    log.info("Notified %d users", len(notified))
+    log.info("Notified %d users for %s", notified_count, product)
 
     # Log event to database
     db.log_restock_event(
@@ -203,8 +210,8 @@ async def health_check_loop():
                 consecutive_failures += 1
                 log.warning("Health check: client disconnected! attempt=%d", consecutive_failures)
                 if consecutive_failures >= 2:
-                    notify_bark("AKILE 監控斷線！", "Telethon 連接已斷開，正在嘗試重連...")
-                    notify_telegram(ADMIN_CHAT_ID, "<b>監控告警</b>\nTelethon 連接斷開，正在重連...\n\n聯繫管理員：@DanersAka")
+                    await asyncio.to_thread(notify_bark, "AKILE 監控斷線！", "Telethon 連接已斷開，正在嘗試重連...")
+                    await asyncio.to_thread(notify_telegram, ADMIN_CHAT_ID, "<b>監控告警</b>\nTelethon 連接斷開，正在重連...\n\n聯繫管理員：@DanersAka")
                 try:
                     await client.connect()
                     me = await client.get_me()
@@ -227,8 +234,8 @@ async def health_check_loop():
             consecutive_failures += 1
             log.warning("Health check failed: %s (attempt=%d)", e, consecutive_failures)
             if consecutive_failures >= 3:
-                notify_bark("AKILE 監控失效！", f"監聽連線可能已過期，錯誤: {e}")
-                notify_telegram(ADMIN_CHAT_ID,
+                await asyncio.to_thread(notify_bark, "AKILE 監控失效！", f"監聽連線可能已過期，錯誤: {e}")
+                await asyncio.to_thread(notify_telegram, ADMIN_CHAT_ID,
                     f"<b>監控嚴重告警</b>\n\n"
                     f"頻道監聽連線失效，連續 {consecutive_failures} 次檢查失敗。\n"
                     f"錯誤: <code>{e}</code>\n\n"
