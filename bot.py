@@ -211,11 +211,17 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
         top_lines = "\n".join(
             f"  <code>{kw}</code> — {len(ids)} 人" for kw, ids in top_kw
         )
+        # Recent activity (last 24h)
+        conn = db._get_conn()
+        recent = conn.execute(
+            "SELECT COUNT(*) as cnt FROM subscriptions WHERE created_at > datetime('now', '-1 day')"
+        ).fetchone()["cnt"]
         status = (
             f"<b>服務狀態</b>\n\n"
             f"用戶數：{user_count}\n"
             f"訂閱數：{sub_count}\n"
-            f"監控關鍵字數：{len(subs_map)}\n\n"
+            f"監控關鍵字數：{len(subs_map)}\n"
+            f"近 24h 新增訂閱：{recent}\n\n"
             f"<b>熱門關鍵字：</b>\n{top_lines if top_lines else '（暫無）'}"
         )
         send_message(token, chat_id, status)
@@ -248,9 +254,10 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
         rows = conn.execute("SELECT chat_id FROM users").fetchall()
         sent = 0
         for r in rows:
-            if send_message(token, r["chat_id"], f"📢 <b>公告</b>\n\n{args}"):
+            if send_message(token, r["chat_id"], f"<b>公告</b>\n\n{args}"):
                 sent += 1
-        send_message(token, chat_id, f"📢 已發送給 {sent}/{len(rows)} 個用戶")
+            time.sleep(0.05)  # rate limit
+        send_message(token, chat_id, f"已發送給 {sent}/{len(rows)} 個用戶")
 
 
 async def bot_poll_loop(token: str, admin_chat_id: int):

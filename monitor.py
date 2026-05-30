@@ -210,6 +210,11 @@ async def health_check_loop():
                 if not me:
                     raise Exception("get_me returned None")
                 consecutive_failures = 0
+                # Periodic WAL checkpoint (once per hour via this 5-min loop)
+                try:
+                    db._get_conn().execute("PRAGMA wal_checkpoint(PASSIVE)")
+                except Exception:
+                    pass
         except Exception as e:
             consecutive_failures += 1
             log.warning("Health check failed: %s (attempt=%d)", e, consecutive_failures)

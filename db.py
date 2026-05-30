@@ -139,7 +139,7 @@ class Database:
             conn.commit()
             return True, f"已訂閱「{keyword}」"
         except sqlite3.IntegrityError:
-            return False, f"你已經訂閱過「{keyword}」了"
+            return False, f"你已經訂閱過「{keyword}」了，無需重複操作"
 
     def remove_subscription(self, chat_id: int, keyword: str) -> Tuple[bool, str]:
         keyword = keyword.strip()
