@@ -9,3 +9,4 @@ config.json
 *.db
 *.log
 .env
+r2.json
