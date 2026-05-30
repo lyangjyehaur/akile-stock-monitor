@@ -177,6 +177,33 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
         else:
             send_message(token, chat_id, "你還沒有訂閱任何關鍵字\n\n用 <code>/subscribe 關鍵字</code> 開始訂閱")
 
+    elif cmd == "/me":
+        subs = db.get_user_subscriptions(chat_id)
+        bark = db.get_bark_url(chat_id)
+        lines = [
+            f"<b>你的資料</b>\n",
+            f"  chat_id：{chat_id}",
+            f"  用戶名：@{username or '-'}",
+            f"  Bark 推送：{'已設定' if bark else '未設定'}",
+            f"  訂閱數：{len(subs)} / {db.MAX_SUBS_PER_USER}",
+        ]
+        if subs:
+            lines.append(f"\n<b>訂閱列表：</b>")
+            for kw in subs:
+                lines.append(f"  - <code>{kw}</code>")
+        send_message(token, chat_id, "\n".join(lines))
+
+    elif cmd == "/keywords":
+        kw_list = db.get_top_keywords(20)
+        if not kw_list:
+            send_message(token, chat_id, "目前暫無人訂閱任何關鍵字")
+            return
+        lines = [f"<b>熱門關鍵字（{len(kw_list)} 個）：</b>\n"]
+        for i, kw in enumerate(kw_list, 1):
+            lines.append(f"  {i}. <code>{kw['keyword']}</code> — {kw['cnt']} 人")
+        lines.append(f"\n用 <code>/subscribe 關鍵字</code> 訂閱")
+        send_message(token, chat_id, "\n".join(lines))
+
     elif cmd == "/bark":
         if not args:
             current = db.get_bark_url(chat_id)
