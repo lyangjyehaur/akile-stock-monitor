@@ -54,6 +54,7 @@ HELP_TEXT = """🤖 <b>AKILE 補貨監控 Bot</b>
 /unsubscribe <code>關鍵字</code> — 取消指定訂閱
 /unsuball — 取消所有訂閱（需二次確認）
 /list — 查看我目前的訂閱列表
+/bark <code>URL</code> — 設定 Bark 推送（iPhone 用戶）
 /status — 查看服務運行狀態與熱門關鍵字
 /help — 顯示這份說明
 
@@ -171,6 +172,36 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
             send_message(token, chat_id, "\n".join(lines))
         else:
             send_message(token, chat_id, "你還沒有訂閱任何關鍵字\n\n用 <code>/subscribe 關鍵字</code> 開始訂閱")
+
+    elif cmd == "/bark":
+        if not args:
+            current = db.get_bark_url(chat_id)
+            if current:
+                send_message(
+                    token, chat_id,
+                    f"你目前已設定的 Bark 推送：\n<code>{current}</code>\n\n"
+                    f"發送 <code>/bark URL</code> 更改，<code>/bark off</code> 取消。"
+                )
+            else:
+                send_message(
+                    token, chat_id,
+                    "📱 <b>設定 Bark 推送</b>\n\n"
+                    "Bark 是 iPhone 推送 App，設定後補貨通知會直接彈到鎖屏。\n\n"
+                    "用法：<code>/bark https://你的bark地址/你的key</code>\n\n"
+                    "範例：<code>/bark https://bark.example.com/abc123</code>\n\n"
+                    "取消推送：<code>/bark off</code>"
+                )
+            return
+        if args.lower() == "off":
+            db.set_bark_url(chat_id, "")
+            send_message(token, chat_id, "✅ 已取消 Bark 推送")
+            return
+        url = args.strip()
+        if not url.startswith("http"):
+            send_message(token, chat_id, "❌ URL 格式不正確，需要以 http:// 或 https:// 開頭")
+            return
+        db.set_bark_url(chat_id, url)
+        send_message(token, chat_id, f"✅ Bark 推送已設定！補貨時會同時推送到你的 iPhone。\n\n取消：<code>/bark off</code>")
 
     elif cmd == "/status":
         user_count = db.get_user_count()

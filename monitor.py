@@ -58,20 +58,26 @@ def notify_bark(title: str, body: str, url: str = None):
     """Send push notification via Bark (admin only)."""
     if not BARK_URL:
         return
+    notify_bark_url(BARK_URL, title, body, url)
+
+
+def notify_bark_url(bark_url: str, title: str, body: str, url: str = None):
+    """Send push notification via a specific Bark URL."""
+    bark_url = bark_url.rstrip("/")
     encoded_title = quote(title, safe="")
     encoded_body = quote(body, safe="")
-    bark_endpoint = f"{BARK_URL}/{encoded_title}/{encoded_body}"
+    bark_endpoint = f"{bark_url}/{encoded_title}/{encoded_body}"
     params = {"sound": BARK_SOUND}
     if url:
         params["url"] = url
     try:
         resp = requests.get(bark_endpoint, params=params, timeout=10)
         if resp.status_code == 200:
-            log.info("Bark sent: %s", title)
+            log.info("Bark sent to %s", bark_url[:30])
         else:
-            log.warning("Bark failed (%d)", resp.status_code)
+            log.warning("Bark failed (%d) for %s", resp.status_code, bark_url[:30])
     except Exception as e:
-        log.error("Bark error: %s", e)
+        log.error("Bark error for %s: %s", bark_url[:30], e)
 
 
 def notify_telegram(chat_id: int, text: str) -> bool:
@@ -155,13 +161,19 @@ async def handler(event):
         f"{url_line}"
     )
     notified_count = 0
+    # Get all Bark URLs for matching users
+    all_bark = db.get_all_bark_urls()
     for chat_id in notified:
         if notify_telegram(chat_id, tg_msg):
             notified_count += 1
+        # Send Bark to user if they set one
+        user_bark = all_bark.get(chat_id)
+        if user_bark:
+            notify_bark_url(user_bark, "🔥 AKILE 補貨！", f"{product}", url=order_url)
         # Telegram rate limit: ~30 msg/sec, we stay safe at ~20/sec
         await asyncio.sleep(0.05)
 
-    # Bark for admin (with URL)
+    # Bark for admin
     bark_body = f"{product} 補貨！"
     if order_url:
         bark_body += f"\n{order_url}"

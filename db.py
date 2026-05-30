@@ -31,6 +31,7 @@ class Database:
                 chat_id   INTEGER PRIMARY KEY,
                 username  TEXT,
                 first_name TEXT,
+                bark_url  TEXT DEFAULT '',
                 joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 is_admin  INTEGER DEFAULT 0
             );
@@ -44,6 +45,11 @@ class Database:
             );
             CREATE INDEX IF NOT EXISTS idx_sub_keyword ON subscriptions(keyword);
         """)
+        # Migrate: add bark_url column if missing
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN bark_url TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         conn.commit()
 
     # ── User operations ──────────────────────────────────
@@ -66,6 +72,29 @@ class Database:
             (1 if is_admin else 0, chat_id),
         )
         conn.commit()
+
+    def set_bark_url(self, chat_id: int, bark_url: str):
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE users SET bark_url = ? WHERE chat_id = ?",
+            (bark_url, chat_id),
+        )
+        conn.commit()
+
+    def get_bark_url(self, chat_id: int) -> str:
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT bark_url FROM users WHERE chat_id = ?", (chat_id,)
+        ).fetchone()
+        return row["bark_url"] if row and row["bark_url"] else ""
+
+    def get_all_bark_urls(self) -> dict:
+        """Returns {chat_id: bark_url} for users who have one."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT chat_id, bark_url FROM users WHERE bark_url != ''"
+        ).fetchall()
+        return {r["chat_id"]: r["bark_url"] for r in rows}
 
     def is_admin(self, chat_id: int) -> bool:
         conn = self._get_conn()
