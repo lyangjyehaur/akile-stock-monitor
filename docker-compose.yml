@@ -1,0 +1,12 @@
+services:
+  akile-monitor:
+    build: .
+    container_name: akile-monitor
+    restart: unless-stopped
+    volumes:
+      # Persist Telethon session file (survives container rebuild)
+      - ./data/session:/app/session
+      # Config mounted so you can edit keywords without rebuilding
+      - ./config.json:/app/config.json:ro
+    environment:
+      - TZ=Asia/Shanghai

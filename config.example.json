@@ -1,0 +1,17 @@
+{
+  "telegram": {
+    "api_id": 0,
+    "api_hash": "YOUR_API_HASH",
+    "session_name": "akile_monitor"
+  },
+  "monitor": {
+    "channel": "akileStock",
+    "keywords": []
+  },
+  "notify": {
+    "bark_url": "",
+    "bark_sound": "multiwayinvitation",
+    "tg_bot_token": "",
+    "tg_chat_id": ""
+  }
+}

@@ -1,0 +1,11 @@
+.venv/
+session/
+__pycache__/
+*.session
+*.session-journal
+data/
+backups/
+config.json
+*.db
+*.log
+.env

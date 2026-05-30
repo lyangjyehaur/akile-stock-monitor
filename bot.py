@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+"""
+Telegram Bot command handler.
+Runs as an async loop alongside the Telethon monitor.
+Uses Telegram Bot API directly (no extra dependencies).
+"""
+
+import asyncio
+import json
+import logging
+import time
+from pathlib import Path
+from typing import Optional
+
+import requests
+
+from db import db
+
+log = logging.getLogger("akile-bot")
+
+CONFIG_PATH = Path(__file__).parent / "config.json"
+
+# Pending /unsuball confirmations: {chat_id: expire_timestamp}
+_pending_unsuball: dict = {}
+CONFIRM_TIMEOUT = 60  # seconds
+
+
+def load_config() -> dict:
+    with open(CONFIG_PATH) as f:
+        return json.load(f)
+
+
+HELP_TEXT = """🤖 <b>AKILE 補貨監控 Bot</b>
+
+訂閱你想要的型號，補貨時第一時間通知你！
+
+<b>指令列表：</b>
+/subscribe <code>關鍵字</code> — 訂閱型號
+/unsubscribe <code>關鍵字</code> — 取消訂閱
+/unsuball — 取消所有訂閱
+/list — 查看我的訂閱
+/status — 服務狀態
+/help — 顯示此幫助
+
+<b>範例：</b>
+<code>/subscribe Pro</code> — 監控所有含 "Pro" 的補貨
+<code>/subscribe HKL-TW</code> — 監控 HKL-TW 系列
+<code>/subscribe NAT</code> — 監控 NAT 系列
+
+關鍵字匹配不分大小寫，消息中包含即可觸發。
+每人最多 {} 個訂閱。""".format(db.MAX_SUBS_PER_USER)
+
+
+def send_message(token: str, chat_id: int, text: str, parse_mode: str = "HTML"):
+    """Send a message via Telegram Bot API."""
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": parse_mode},
+            timeout=10,
+        )
+        return resp.status_code == 200
+    except Exception as e:
+        log.error("send_message error: %s", e)
+        return False
+
+
+def handle_update(token: str, update: dict, admin_chat_id: int):
+    """Handle a single Telegram update."""
+    try:
+        _handle_update_inner(token, update, admin_chat_id)
+    except Exception as e:
+        log.error("handle_update error: %s", e)
+
+
+def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
+    message = update.get("message")
+    if not message:
+        return
+
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
+    text = message.get("text", "").strip()
+    user = message.get("from", {})
+    username = user.get("username", "")
+    first_name = user.get("first_name", "")
+
+    if not chat_id or not text:
+        return
+
+    log.info("Bot msg from %s: %s", chat_id, text)
+
+    # Register/update user
+    db.upsert_user(chat_id, username, first_name)
+
+    # Set admin
+    if chat_id == admin_chat_id and not db.is_admin(chat_id):
+        db.set_admin(chat_id, True)
+
+    # Parse command
+    if not text.startswith("/"):
+        return
+
+    parts = text.split(maxsplit=1)
+    cmd = parts[0].split("@")[0].lower()  # strip @botname
+    args = parts[1].strip() if len(parts) > 1 else ""
+
+    if cmd == "/start":
+        send_message(token, chat_id, HELP_TEXT)
+
+    elif cmd == "/help":
+        send_message(token, chat_id, HELP_TEXT)
+
+    elif cmd == "/subscribe":
+        if not args:
+            send_message(token, chat_id, "用法：<code>/subscribe 關鍵字</code>\n例如：<code>/subscribe Pro</code>")
+            return
+        keywords = [k.strip() for k in args.replace(",", " ").split() if k.strip()]
+        results = []
+        for kw in keywords[:5]:
+            ok, msg = db.add_subscription(chat_id, kw)
+            results.append(msg)
+        send_message(token, chat_id, "\n".join(results))
+
+    elif cmd == "/unsubscribe":
+        if not args:
+            send_message(token, chat_id, "用法：<code>/unsubscribe 關鍵字</code>")
+            return
+        keywords = [k.strip() for k in args.replace(",", " ").split() if k.strip()]
+        results = []
+        for kw in keywords:
+            ok, msg = db.remove_subscription(chat_id, kw)
+            results.append(msg)
+        send_message(token, chat_id, "\n".join(results))
+
+    elif cmd == "/unsuball":
+        now = time.time()
+        if chat_id in _pending_unsuball and _pending_unsuball[chat_id] > now:
+            # Confirmed
+            del _pending_unsuball[chat_id]
+            count = db.remove_all_subscriptions(chat_id)
+            send_message(token, chat_id, f"✅ 已取消所有訂閱（共 {count} 個）" if count else "你沒有任何訂閱")
+        else:
+            # Ask for confirmation
+            subs = db.get_user_subscriptions(chat_id)
+            if not subs:
+                send_message(token, chat_id, "你沒有任何訂閱")
+                return
+            _pending_unsuball[chat_id] = now + CONFIRM_TIMEOUT
+            send_message(
+                token, chat_id,
+                f"⚠️ 確定要取消所有 {len(subs)} 個訂閱嗎？\n\n"
+                f"60 秒內再次發送 <code>/unsuball</code> 確認。"
+            )
+
+    elif cmd == "/list":
+        subs = db.get_user_subscriptions(chat_id)
+        if subs:
+            lines = [f"<b>📋 你的訂閱（{len(subs)} 個）：</b>"]
+            for i, kw in enumerate(subs, 1):
+                lines.append(f"  {i}. <code>{kw}</code>")
+            send_message(token, chat_id, "\n".join(lines))
+        else:
+            send_message(token, chat_id, "你還沒有訂閱任何關鍵字\n\n用 <code>/subscribe 關鍵字</code> 開始訂閱")
+
+    elif cmd == "/status":
+        user_count = db.get_user_count()
+        sub_count = db.get_subscription_count()
+        subs_map = db.get_all_subscriptions_map()
+        top_kw = sorted(subs_map.items(), key=lambda x: len(x[1]), reverse=True)[:5]
+        top_lines = "\n".join(
+            f"  <code>{kw}</code> — {len(ids)} 人" for kw, ids in top_kw
+        )
+        status = (
+            f"📊 <b>服務狀態</b>\n\n"
+            f"👥 用戶數：{user_count}\n"
+            f"📬 訂閱數：{sub_count}\n"
+            f"🔑 監控關鍵字數：{len(subs_map)}\n\n"
+            f"<b>熱門關鍵字：</b>\n{top_lines if top_lines else '（暫無）'}"
+        )
+        send_message(token, chat_id, status)
+
+    elif cmd == "/health":
+        if not db.is_admin(chat_id):
+            return
+        try:
+            resp = requests.get(
+                f"https://api.telegram.org/bot{token}/getMe", timeout=5
+            )
+            bot_ok = resp.status_code == 200 and resp.json().get("ok")
+        except Exception:
+            bot_ok = False
+        health = (
+            f"🏥 <b>健康檢查</b>\n\n"
+            f"🤖 Bot API: {'✅ 正常' if bot_ok else '❌ 異常'}\n"
+            f"📡 小號 Telethon: 需要查看服務器日誌\n"
+            f"⏰ 心跳: 每 5 分鐘自動檢查\n\n"
+            f"查看日誌：<code>ssh oracle2 journalctl -u akile-monitor -f</code>"
+        )
+        send_message(token, chat_id, health)
+
+    # Admin commands
+    elif cmd == "/broadcast" and db.is_admin(chat_id):
+        if not args:
+            send_message(token, chat_id, "用法：<code>/broadcast 消息內容</code>")
+            return
+        conn = db._get_conn()
+        rows = conn.execute("SELECT chat_id FROM users").fetchall()
+        sent = 0
+        for r in rows:
+            if send_message(token, r["chat_id"], f"📢 <b>公告</b>\n\n{args}"):
+                sent += 1
+        send_message(token, chat_id, f"📢 已發送給 {sent}/{len(rows)} 個用戶")
+
+
+async def bot_poll_loop(token: str, admin_chat_id: int):
+    """Async long polling loop for bot commands."""
+    log.info("Bot poll loop started (async)")
+    offset = 0
+    while True:
+        try:
+            # Use asyncio.to_thread to avoid blocking the event loop
+            resp = await asyncio.to_thread(
+                lambda: requests.get(
+                    f"https://api.telegram.org/bot{token}/getUpdates",
+                    params={"offset": offset, "timeout": 20, "allowed_updates": ["message"]},
+                    timeout=25,
+                )
+            )
+            if resp.status_code != 200:
+                log.warning("getUpdates failed: %d", resp.status_code)
+                await asyncio.sleep(5)
+                continue
+
+            data = resp.json()
+            if not data.get("ok"):
+                log.warning("getUpdates not ok: %s", data)
+                await asyncio.sleep(5)
+                continue
+
+            for update in data.get("result", []):
+                offset = update["update_id"] + 1
+                handle_update(token, update, admin_chat_id)
+
+        except Exception as e:
+            log.error("Bot poll error: %s", e)
+            await asyncio.sleep(5)
