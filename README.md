@@ -114,6 +114,52 @@ akile-monitor/
 - `bark_url` — Bark 推送地址（可選）
 - `tg_chat_id` — 管理員的 Telegram chat_id
 
+## 備份與恢復
+
+### 自動備份
+
+- **本地備份**: oracle2 每日 4am 備份到 `/root/akile-monitor/backups/`，保留 7 天
+- **R2 備份**: 同步上傳到 Cloudflare R2，保留 30 天
+  - 路徑: `backups/akile-monitor/subscriptions_YYYYMMDD_HHMM.db`
+  - 最新副本: `backups/akile-monitor/latest/subscriptions.db`
+
+### 從 R2 恢復
+
+```bash
+# 安裝 aws cli (S3 兼容)
+pip3 install boto3
+
+# 下載最新備份
+python3 -c "
+import boto3, json
+with open('r2.json') as f:
+    r2 = json.load(f)
+s3 = boto3.client('s3',
+    endpoint_url=f'https://{r2[\"account_id\"]}.r2.cloudflarestorage.com',
+    aws_access_key_id=r2['access_key'],
+    aws_secret_access_key=r2['secret_key'],
+    region_name='auto')
+s3.download_file(r2['bucket'], 'backups/akile-monitor/latest/subscriptions.db', 'data/subscriptions.db')
+s3.download_file(r2['bucket'], 'backups/akile-monitor/latest/akile_monitor.session', 'session/akile_monitor.session')
+print('Restored!')
+"
+
+# 重啟服務
+systemctl restart akile-monitor
+```
+
+### 從本地備份恢復
+
+```bash
+# 找最近的備份
+ls -lt /root/akile-monitor/backups/
+
+# 恢復
+cp /root/akile-monitor/backups/subscriptions_LATEST.db /root/akile-monitor/data/subscriptions.db
+cp /root/akile-monitor/backups/session_LATEST.session /root/akile-monitor/session/akile_monitor.session
+systemctl restart akile-monitor
+```
+
 ## License
 
 MIT

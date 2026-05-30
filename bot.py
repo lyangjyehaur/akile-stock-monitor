@@ -35,7 +35,7 @@ HELP_TEXT = """<b>AKILE 補貨監控 Bot</b>
 訂閱你想要的伺服器型號，當 @akileStock 頻道發佈補貨消息時，第一時間通知你！
 
 <b>▸ 如何訂閱</b>
-發送 <code>/subscribe</code> 加上你要監控的關鍵字，例如：
+發送 <code>/subscribe</code>（或 <code>/sub</code>）加上你要監控的關鍵字，例如：
 • <code>/subscribe Pro</code> — 監控所有名稱含 "Pro" 的產品
 • <code>/subscribe HKL-TW</code> — 監控 HKL-TW 系列（如 HKL-TW-One、HKL-TW-Pro）
 • <code>/subscribe NAT</code> — 監控 NAT 系列（如 TWHinet-Mini-NAT）
@@ -51,7 +51,7 @@ HELP_TEXT = """<b>AKILE 補貨監控 Bot</b>
 • 過短的關鍵字（如 "HK"、"SG"）可能匹配大量產品，建議只訂閱你真正需要的精準關鍵字，避免頻繁通知打擾
 
 <b>▸ 其他指令</b>
-/unsubscribe <code>關鍵字</code> — 取消指定訂閱
+/unsubscribe <code>關鍵字</code>（或 <code>/unsub</code>） — 取消指定訂閱
 /unsuball — 取消所有訂閱（需二次確認）
 /list — 查看我目前的訂閱列表
 /bark <code>URL</code> — 設定 Bark 推送（iPhone 用戶）
@@ -114,6 +114,10 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
     parts = text.split(maxsplit=1)
     cmd = parts[0].split("@")[0].lower()  # strip @botname
     args = parts[1].strip() if len(parts) > 1 else ""
+
+    # Aliases
+    alias_map = {"/sub": "/subscribe", "/unsub": "/unsubscribe"}
+    cmd = alias_map.get(cmd, cmd)
 
     if cmd == "/start":
         send_message(token, chat_id, HELP_TEXT)
