@@ -166,7 +166,7 @@ async def health_check_loop():
                 log.warning("Health check: client disconnected! attempt=%d", consecutive_failures)
                 if consecutive_failures >= 2:
                     notify_bark("⚠️ AKILE 監控斷線！", "Telethon 連接已斷開，正在嘗試重連...")
-                    notify_telegram(ADMIN_CHAT_ID, "⚠️ <b>監控告警</b>\nTelethon 連接斷開，正在重連...")
+                    notify_telegram(ADMIN_CHAT_ID, "⚠️ <b>監控告警</b>\nTelethon 連接斷開，正在重連...\n\n聯繫管理員：@DanersAka")
                 try:
                     await client.connect()
                     me = await client.get_me()
@@ -189,7 +189,8 @@ async def health_check_loop():
                     f"🚨 <b>監控嚴重告警</b>\n\n"
                     f"小號 session 可能已過期，連續 {consecutive_failures} 次檢查失敗。\n"
                     f"錯誤: <code>{e}</code>\n\n"
-                    f"需要重新授權小號。")
+                    f"需要重新授權小號。\n\n"
+                    f"聯繫管理員：@DanersAka")
 
 
 async def main():

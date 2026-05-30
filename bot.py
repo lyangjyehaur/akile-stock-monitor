@@ -32,23 +32,31 @@ def load_config() -> dict:
 
 HELP_TEXT = """🤖 <b>AKILE 補貨監控 Bot</b>
 
-訂閱你想要的型號，補貨時第一時間通知你！
+訂閱你想要的伺服器型號，當 @akileStock 頻道發佈補貨消息時，第一時間通知你！
 
-<b>指令列表：</b>
-/subscribe <code>關鍵字</code> — 訂閱型號
-/unsubscribe <code>關鍵字</code> — 取消訂閱
-/unsuball — 取消所有訂閱
-/list — 查看我的訂閱
-/status — 服務狀態
-/help — 顯示此幫助
+<b>▸ 如何訂閱</b>
+發送 <code>/subscribe</code> 加上你要監控的關鍵字，例如：
+• <code>/subscribe Pro</code> — 監控所有名稱含 "Pro" 的產品
+• <code>/subscribe HKL-TW</code> — 監控 HKL-TW 系列（如 HKL-TW-One、HKL-TW-Pro）
+• <code>/subscribe NAT</code> — 監控 NAT 系列（如 TWHinet-Mini-NAT）
+• <code>/subscribe Starter</code> — 監控 Starter 方案
 
-<b>範例：</b>
-<code>/subscribe Pro</code> — 監控所有含 "Pro" 的補貨
-<code>/subscribe HKL-TW</code> — 監控 HKL-TW 系列
-<code>/subscribe NAT</code> — 監控 NAT 系列
+一次也可以訂閱多個，用空格分隔：
+• <code>/subscribe Pro Starter NAT</code>
 
-關鍵字匹配不分大小寫，消息中包含即可觸發。
-每人最多 {} 個訂閱。""".format(db.MAX_SUBS_PER_USER)
+<b>▸ 關鍵字規則</b>
+• 最短 2 個字符，最長 50 個字符
+• 不分大小寫，消息中包含即觸發
+• 每人最多 {} 個訂閱
+
+<b>▸ 其他指令</b>
+/unsubscribe <code>關鍵字</code> — 取消指定訂閱
+/unsuball — 取消所有訂閱（需二次確認）
+/list — 查看我目前的訂閱列表
+/status — 查看服務運行狀態與熱門關鍵字
+/help — 顯示這份說明
+
+💡 有問題或建議請聯繫 @DanersAka""".format(db.MAX_SUBS_PER_USER)
 
 
 def send_message(token: str, chat_id: int, text: str, parse_mode: str = "HTML"):
