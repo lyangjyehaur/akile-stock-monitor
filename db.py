@@ -137,7 +137,7 @@ class Database:
                 (chat_id, keyword),
             )
             conn.commit()
-            return True, f"✅ 已訂閱「{keyword}」"
+            return True, f"已訂閱「{keyword}」"
         except sqlite3.IntegrityError:
             return False, f"你已經訂閱過「{keyword}」了"
 
@@ -150,7 +150,7 @@ class Database:
         )
         conn.commit()
         if cursor.rowcount > 0:
-            return True, f"❌ 已取消訂閱「{keyword}」"
+            return True, f"已取消訂閱「{keyword}」"
         return False, f"你沒有訂閱「{keyword}」"
 
     def remove_all_subscriptions(self, chat_id: int) -> int:

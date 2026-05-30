@@ -87,7 +87,7 @@ def notify_telegram(chat_id: int, text: str, button_url: str = None) -> bool:
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     if button_url:
         payload["reply_markup"] = json.dumps({
-            "inline_keyboard": [[{"text": "🛒 立即下單", "url": button_url}]]
+            "inline_keyboard": [[{"text": "立即下單", "url": button_url}]]
         })
     try:
         resp = requests.post(
@@ -159,7 +159,7 @@ async def handler(event):
 
     # Send Telegram notifications with rate limiting
     tg_msg = (
-        f"🔥 <b>AKILE 補貨通知</b>\n\n"
+        f"<b>AKILE 補貨通知</b>\n\n"
         f"<b>產品:</b> {product}\n"
         f"<b>匹配:</b> {', '.join(matched_keywords)}"
     )
@@ -172,7 +172,7 @@ async def handler(event):
         # Send Bark to user if they set one
         user_bark = all_bark.get(chat_id)
         if user_bark:
-            notify_bark_url(user_bark, "🔥 AKILE 補貨！", f"{product}", url=order_url)
+            notify_bark_url(user_bark, "AKILE 補貨！", f"{product}", url=order_url)
         # Telegram rate limit: ~30 msg/sec, we stay safe at ~20/sec
         await asyncio.sleep(0.05)
 
@@ -180,7 +180,7 @@ async def handler(event):
     bark_body = f"{product} 補貨！"
     if order_url:
         bark_body += f"\n{order_url}"
-    notify_bark("🔥 AKILE 補貨！", bark_body, url=order_url)
+    notify_bark("AKILE 補貨！", bark_body, url=order_url)
 
     log.info("Notified %d users", len(notified))
 
@@ -195,8 +195,8 @@ async def health_check_loop():
                 consecutive_failures += 1
                 log.warning("Health check: client disconnected! attempt=%d", consecutive_failures)
                 if consecutive_failures >= 2:
-                    notify_bark("⚠️ AKILE 監控斷線！", "Telethon 連接已斷開，正在嘗試重連...")
-                    notify_telegram(ADMIN_CHAT_ID, "⚠️ <b>監控告警</b>\nTelethon 連接斷開，正在重連...\n\n聯繫管理員：@DanersAka")
+                    notify_bark("AKILE 監控斷線！", "Telethon 連接已斷開，正在嘗試重連...")
+                    notify_telegram(ADMIN_CHAT_ID, "<b>監控告警</b>\nTelethon 連接斷開，正在重連...\n\n聯繫管理員：@DanersAka")
                 try:
                     await client.connect()
                     me = await client.get_me()
@@ -214,9 +214,9 @@ async def health_check_loop():
             consecutive_failures += 1
             log.warning("Health check failed: %s (attempt=%d)", e, consecutive_failures)
             if consecutive_failures >= 3:
-                notify_bark("🚨 AKILE 監控失效！", f"監聽連線可能已過期，錯誤: {e}")
+                notify_bark("AKILE 監控失效！", f"監聽連線可能已過期，錯誤: {e}")
                 notify_telegram(ADMIN_CHAT_ID,
-                    f"🚨 <b>監控嚴重告警</b>\n\n"
+                    f"<b>監控嚴重告警</b>\n\n"
                     f"頻道監聽連線失效，連續 {consecutive_failures} 次檢查失敗。\n"
                     f"錯誤: <code>{e}</code>\n\n"
                     f"需要重新授權監聽帳號。\n\n"

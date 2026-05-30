@@ -30,7 +30,7 @@ def load_config() -> dict:
         return json.load(f)
 
 
-HELP_TEXT = """🤖 <b>AKILE 補貨監控 Bot</b>
+HELP_TEXT = """<b>AKILE 補貨監控 Bot</b>
 
 訂閱你想要的伺服器型號，當 @akileStock 頻道發佈補貨消息時，第一時間通知你！
 
@@ -58,7 +58,7 @@ HELP_TEXT = """🤖 <b>AKILE 補貨監控 Bot</b>
 /status — 查看服務運行狀態與熱門關鍵字
 /help — 顯示這份說明
 
-💡 有問題或建議請聯繫 @DanersAka""".format(db.MAX_SUBS_PER_USER)
+有問題或建議請聯繫 @DanersAka""".format(db.MAX_SUBS_PER_USER)
 
 
 def send_message(token: str, chat_id: int, text: str, parse_mode: str = "HTML"):
@@ -149,7 +149,7 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
             # Confirmed
             del _pending_unsuball[chat_id]
             count = db.remove_all_subscriptions(chat_id)
-            send_message(token, chat_id, f"✅ 已取消所有訂閱（共 {count} 個）" if count else "你沒有任何訂閱")
+            send_message(token, chat_id, f"已取消所有訂閱（共 {count} 個）" if count else "你沒有任何訂閱")
         else:
             # Ask for confirmation
             subs = db.get_user_subscriptions(chat_id)
@@ -159,14 +159,14 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
             _pending_unsuball[chat_id] = now + CONFIRM_TIMEOUT
             send_message(
                 token, chat_id,
-                f"⚠️ 確定要取消所有 {len(subs)} 個訂閱嗎？\n\n"
+                f"確定要取消所有 {len(subs)} 個訂閱嗎？\n\n"
                 f"60 秒內再次發送 <code>/unsuball</code> 確認。"
             )
 
     elif cmd == "/list":
         subs = db.get_user_subscriptions(chat_id)
         if subs:
-            lines = [f"<b>📋 你的訂閱（{len(subs)} 個）：</b>"]
+            lines = [f"<b>你的訂閱（{len(subs)} 個）：</b>"]
             for i, kw in enumerate(subs, 1):
                 lines.append(f"  {i}. <code>{kw}</code>")
             send_message(token, chat_id, "\n".join(lines))
@@ -185,7 +185,7 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
             else:
                 send_message(
                     token, chat_id,
-                    "📱 <b>設定 Bark 推送</b>\n\n"
+                    "<b>設定 Bark 推送</b>\n\n"
                     "Bark 是 iPhone 推送 App，設定後補貨通知會直接彈到鎖屏。\n\n"
                     "用法：<code>/bark https://你的bark地址/你的key</code>\n\n"
                     "範例：<code>/bark https://bark.example.com/abc123</code>\n\n"
@@ -194,14 +194,14 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
             return
         if args.lower() == "off":
             db.set_bark_url(chat_id, "")
-            send_message(token, chat_id, "✅ 已取消 Bark 推送")
+            send_message(token, chat_id, "已取消 Bark 推送")
             return
         url = args.strip()
         if not url.startswith("http"):
-            send_message(token, chat_id, "❌ URL 格式不正確，需要以 http:// 或 https:// 開頭")
+            send_message(token, chat_id, "URL 格式不正確，需要以 http:// 或 https:// 開頭")
             return
         db.set_bark_url(chat_id, url)
-        send_message(token, chat_id, f"✅ Bark 推送已設定！補貨時會同時推送到你的 iPhone。\n\n取消：<code>/bark off</code>")
+        send_message(token, chat_id, f"Bark 推送已設定！補貨時會同時推送到你的 iPhone。\n\n取消：<code>/bark off</code>")
 
     elif cmd == "/status":
         user_count = db.get_user_count()
@@ -212,10 +212,10 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
             f"  <code>{kw}</code> — {len(ids)} 人" for kw, ids in top_kw
         )
         status = (
-            f"📊 <b>服務狀態</b>\n\n"
-            f"👥 用戶數：{user_count}\n"
-            f"📬 訂閱數：{sub_count}\n"
-            f"🔑 監控關鍵字數：{len(subs_map)}\n\n"
+            f"<b>服務狀態</b>\n\n"
+            f"用戶數：{user_count}\n"
+            f"訂閱數：{sub_count}\n"
+            f"監控關鍵字數：{len(subs_map)}\n\n"
             f"<b>熱門關鍵字：</b>\n{top_lines if top_lines else '（暫無）'}"
         )
         send_message(token, chat_id, status)
@@ -231,10 +231,10 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
         except Exception:
             bot_ok = False
         health = (
-            f"🏥 <b>健康檢查</b>\n\n"
-            f"🤖 Bot API: {'✅ 正常' if bot_ok else '❌ 異常'}\n"
-            f"📡 頻道監聽: 需要查看服務器日誌\n"
-            f"⏰ 心跳: 每 5 分鐘自動檢查\n\n"
+            f"<b>健康檢查</b>\n\n"
+            f"Bot API: {'正常' if bot_ok else '異常'}\n"
+            f"頻道監聽: 需要查看服務器日誌\n"
+            f"心跳: 每 5 分鐘自動檢查\n\n"
             f"查看日誌：<code>ssh oracle2 journalctl -u akile-monitor -f</code>"
         )
         send_message(token, chat_id, health)
