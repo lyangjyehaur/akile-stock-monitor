@@ -129,6 +129,17 @@ async def handler(event):
     product = extract_product_name(text)
     log.info("MATCH! product=%s keywords=%s", product, matched_keywords)
 
+    # Extract order URL from inline buttons
+    order_url = None
+    if event.message.buttons:
+        for row in event.message.buttons:
+            for btn in row:
+                if btn.url:
+                    order_url = btn.url
+                    break
+            if order_url:
+                break
+
     # Collect all unique chat_ids to notify
     notified = set()
     for kw in matched_keywords:
@@ -136,11 +147,12 @@ async def handler(event):
             notified.add(chat_id)
 
     # Send Telegram notifications with rate limiting
+    url_line = f'\n\n<a href="{order_url}">🛒 立即下單</a>' if order_url else ""
     tg_msg = (
         f"🔥 <b>AKILE 補貨通知</b>\n\n"
         f"<b>產品:</b> {product}\n"
-        f"<b>匹配:</b> {', '.join(matched_keywords)}\n\n"
-        f"<pre>{text.strip()}</pre>"
+        f"<b>匹配:</b> {', '.join(matched_keywords)}"
+        f"{url_line}"
     )
     notified_count = 0
     for chat_id in notified:
@@ -149,8 +161,11 @@ async def handler(event):
         # Telegram rate limit: ~30 msg/sec, we stay safe at ~20/sec
         await asyncio.sleep(0.05)
 
-    # Bark for admin
-    notify_bark("🔥 AKILE 補貨！", text.strip(), url="https://akile.io")
+    # Bark for admin (with URL)
+    bark_body = f"{product} 補貨！"
+    if order_url:
+        bark_body += f"\n{order_url}"
+    notify_bark("🔥 AKILE 補貨！", bark_body, url=order_url)
 
     log.info("Notified %d users", len(notified))
 
