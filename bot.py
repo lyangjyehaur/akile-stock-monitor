@@ -383,7 +383,7 @@ async def bot_poll_loop(token: str, admin_chat_id: int):
 
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
-                handle_update(token, update, admin_chat_id)
+                await asyncio.to_thread(handle_update, token, update, admin_chat_id)
 
         except Exception as e:
             log.error("Bot poll error: %s", e)
