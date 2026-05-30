@@ -184,12 +184,12 @@ async def health_check_loop():
             consecutive_failures += 1
             log.warning("Health check failed: %s (attempt=%d)", e, consecutive_failures)
             if consecutive_failures >= 3:
-                notify_bark("🚨 AKILE 監控失效！", f"小號 session 可能已過期，錯誤: {e}")
+                notify_bark("🚨 AKILE 監控失效！", f"監聽連線可能已過期，錯誤: {e}")
                 notify_telegram(ADMIN_CHAT_ID,
                     f"🚨 <b>監控嚴重告警</b>\n\n"
-                    f"小號 session 可能已過期，連續 {consecutive_failures} 次檢查失敗。\n"
+                    f"頻道監聽連線失效，連續 {consecutive_failures} 次檢查失敗。\n"
                     f"錯誤: <code>{e}</code>\n\n"
-                    f"需要重新授權小號。\n\n"
+                    f"需要重新授權監聽帳號。\n\n"
                     f"聯繫管理員：@DanersAka")
 
 

@@ -201,7 +201,7 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
         health = (
             f"🏥 <b>健康檢查</b>\n\n"
             f"🤖 Bot API: {'✅ 正常' if bot_ok else '❌ 異常'}\n"
-            f"📡 小號 Telethon: 需要查看服務器日誌\n"
+            f"📡 頻道監聽: 需要查看服務器日誌\n"
             f"⏰ 心跳: 每 5 分鐘自動檢查\n\n"
             f"查看日誌：<code>ssh oracle2 journalctl -u akile-monitor -f</code>"
         )
