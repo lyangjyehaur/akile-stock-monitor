@@ -80,14 +80,19 @@ def notify_bark_url(bark_url: str, title: str, body: str, url: str = None):
         log.error("Bark error for %s: %s", bark_url[:30], e)
 
 
-def notify_telegram(chat_id: int, text: str) -> bool:
-    """Send message to a specific user via Bot API."""
+def notify_telegram(chat_id: int, text: str, button_url: str = None) -> bool:
+    """Send message to a specific user via Bot API. Optionally attach an inline button."""
     if not BOT_TOKEN:
         return False
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if button_url:
+        payload["reply_markup"] = json.dumps({
+            "inline_keyboard": [[{"text": "🛒 立即下單", "url": button_url}]]
+        })
     try:
         resp = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            json=payload,
             timeout=10,
         )
         if resp.status_code == 200:
@@ -153,18 +158,16 @@ async def handler(event):
             notified.add(chat_id)
 
     # Send Telegram notifications with rate limiting
-    url_line = f'\n\n<a href="{order_url}">🛒 立即下單</a>' if order_url else ""
     tg_msg = (
         f"🔥 <b>AKILE 補貨通知</b>\n\n"
         f"<b>產品:</b> {product}\n"
         f"<b>匹配:</b> {', '.join(matched_keywords)}"
-        f"{url_line}"
     )
     notified_count = 0
     # Get all Bark URLs for matching users
     all_bark = db.get_all_bark_urls()
     for chat_id in notified:
-        if notify_telegram(chat_id, tg_msg):
+        if notify_telegram(chat_id, tg_msg, button_url=order_url):
             notified_count += 1
         # Send Bark to user if they set one
         user_bark = all_bark.get(chat_id)
