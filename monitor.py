@@ -184,6 +184,14 @@ async def handler(event):
 
     log.info("Notified %d users", len(notified))
 
+    # Log event to database
+    db.log_restock_event(
+        product=product,
+        matched_kw=", ".join(matched_keywords),
+        order_url=order_url or "",
+        notified=notified_count,
+    )
+
 
 async def health_check_loop():
     """Periodically check Telethon session health. Alert admin if broken."""

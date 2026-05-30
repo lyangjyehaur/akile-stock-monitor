@@ -43,7 +43,16 @@ class Database:
                 UNIQUE(chat_id, keyword),
                 FOREIGN KEY (chat_id) REFERENCES users(chat_id)
             );
+            CREATE TABLE IF NOT EXISTS restock_events (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                product    TEXT NOT NULL,
+                matched_kw TEXT NOT NULL,
+                order_url  TEXT DEFAULT '',
+                notified   INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE INDEX IF NOT EXISTS idx_sub_keyword ON subscriptions(keyword);
+            CREATE INDEX IF NOT EXISTS idx_events_created ON restock_events(created_at);
         """)
         # Migrate: add bark_url column if missing
         try:
@@ -192,6 +201,65 @@ class Database:
         conn = self._get_conn()
         row = conn.execute("SELECT COUNT(*) as cnt FROM subscriptions").fetchone()
         return row["cnt"]
+
+    # ── Restock event operations ────────────────────────
+    def log_restock_event(self, product: str, matched_kw: str, order_url: str = "", notified: int = 0):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO restock_events (product, matched_kw, order_url, notified) VALUES (?, ?, ?, ?)",
+            (product, matched_kw, order_url, notified),
+        )
+        conn.commit()
+
+    def get_recent_events(self, limit: int = 10) -> list:
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT product, matched_kw, notified, created_at FROM restock_events ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_event_count(self, hours: int = 24) -> int:
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM restock_events WHERE created_at > datetime('now', ?)",
+            (f"-{hours} hours",),
+        ).fetchone()
+        return row["cnt"]
+
+    def get_users_with_subs(self) -> list:
+        """Returns [{chat_id, username, first_name, sub_count, bark_url}]"""
+        conn = self._get_conn()
+        rows = conn.execute("""
+            SELECT u.chat_id, u.username, u.first_name, u.bark_url,
+                   COUNT(s.id) as sub_count
+            FROM users u LEFT JOIN subscriptions s ON u.chat_id = s.chat_id
+            GROUP BY u.chat_id
+            ORDER BY sub_count DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_user_detail(self, chat_id: int) -> dict:
+        conn = self._get_conn()
+        user = conn.execute("SELECT * FROM users WHERE chat_id = ?", (chat_id,)).fetchone()
+        if not user:
+            return {}
+        subs = conn.execute(
+            "SELECT keyword, created_at FROM subscriptions WHERE chat_id = ? ORDER BY keyword",
+            (chat_id,),
+        ).fetchall()
+        return {"user": dict(user), "subscriptions": [dict(r) for r in subs]}
+
+    def get_top_keywords(self, limit: int = 10) -> list:
+        conn = self._get_conn()
+        rows = conn.execute("""
+            SELECT keyword, COUNT(*) as cnt
+            FROM subscriptions
+            GROUP BY keyword
+            ORDER BY cnt DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
 
 
 # Singleton

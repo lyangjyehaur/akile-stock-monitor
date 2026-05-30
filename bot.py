@@ -263,6 +263,71 @@ def _handle_update_inner(token: str, update: dict, admin_chat_id: int):
             time.sleep(0.05)  # rate limit
         send_message(token, chat_id, f"已發送給 {sent}/{len(rows)} 個用戶")
 
+    elif cmd == "/users" and db.is_admin(chat_id):
+        users = db.get_users_with_subs()
+        if not users:
+            send_message(token, chat_id, "暫無用戶")
+            return
+        lines = [f"<b>用戶列表（{len(users)} 人）：</b>\n"]
+        for u in users:
+            name = u["first_name"] or u["username"] or str(u["chat_id"])
+            bark = " [Bark]" if u["bark_url"] else ""
+            lines.append(f"  {name} — {u['sub_count']} 個訂閱{bark}")
+        send_message(token, chat_id, "\n".join(lines))
+
+    elif cmd == "/recent" and db.is_admin(chat_id):
+        events = db.get_recent_events(10)
+        if not events:
+            send_message(token, chat_id, "暫無補貨記錄")
+            return
+        lines = ["<b>最近補貨記錄：</b>\n"]
+        for e in events:
+            lines.append(f"  {e['created_at']}")
+            lines.append(f"    {e['product']}")
+            lines.append(f"    匹配: {e['matched_kw']} | 通知: {e['notified']} 人\n")
+        send_message(token, chat_id, "\n".join(lines))
+
+    elif cmd == "/top" and db.is_admin(chat_id):
+        kw_list = db.get_top_keywords(10)
+        events_24h = db.get_event_count(24)
+        if not kw_list:
+            send_message(token, chat_id, "暫無訂閱數據")
+            return
+        lines = [f"<b>關鍵字排行：</b>\n"]
+        for i, kw in enumerate(kw_list, 1):
+            lines.append(f"  {i}. <code>{kw['keyword']}</code> — {kw['cnt']} 人")
+        lines.append(f"\n近 24h 補貨事件：{events_24h} 次")
+        send_message(token, chat_id, "\n".join(lines))
+
+    elif cmd == "/user" and db.is_admin(chat_id):
+        if not args:
+            send_message(token, chat_id, "用法：<code>/user chat_id</code>")
+            return
+        try:
+            uid = int(args.strip())
+        except ValueError:
+            send_message(token, chat_id, "chat_id 必須是數字")
+            return
+        detail = db.get_user_detail(uid)
+        if not detail:
+            send_message(token, chat_id, f"找不到用戶 {uid}")
+            return
+        u = detail["user"]
+        subs = detail["subscriptions"]
+        name = u.get("first_name") or u.get("username") or str(uid)
+        lines = [
+            f"<b>用戶詳情：</b>\n",
+            f"  名稱：{name}",
+            f"  chat_id：{uid}",
+            f"  username：@{u.get('username', '-')}",
+            f"  Bark：{'已設定' if u.get('bark_url') else '未設定'}",
+            f"  註冊：{u.get('joined_at', '-')}",
+            f"\n<b>訂閱（{len(subs)} 個）：</b>",
+        ]
+        for s in subs:
+            lines.append(f"  - <code>{s['keyword']}</code>（{s['created_at']}）")
+        send_message(token, chat_id, "\n".join(lines))
+
 
 async def bot_poll_loop(token: str, admin_chat_id: int):
     """Async long polling loop for bot commands."""
