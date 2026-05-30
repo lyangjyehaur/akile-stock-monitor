@@ -232,6 +232,12 @@ async def main():
             db.add_subscription(ADMIN_CHAT_ID, kw)
         log.info("Admin auto-subscribed to: %s", initial_kw)
 
+    # Auto-set admin's Bark URL from config
+    if BARK_URL:
+        db.upsert_user(ADMIN_CHAT_ID)
+        db.set_bark_url(ADMIN_CHAT_ID, BARK_URL)
+        log.info("Admin Bark URL synced from config")
+
     # Connect Telethon
     await client.connect()
     me = await client.get_me()
