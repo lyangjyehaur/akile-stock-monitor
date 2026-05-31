@@ -17,7 +17,8 @@ import requests
 from telethon import TelegramClient
 
 from db import db
-from bot import bot_poll_loop, send_notification, _bot_loop
+from bot import bot_poll_loop, send_notification
+import bot as bot_module
 
 # ── Logging ──────────────────────────────────────────────
 logging.basicConfig(
@@ -82,17 +83,22 @@ def notify_bark_url(bark_url: str, title: str, body: str, url: str = None):
 
 def notify_telegram(chat_id: int, text: str, button_url: str = None) -> bool:
     """Send notification via python-telegram-bot framework (cross-thread)."""
-    if not BOT_TOKEN or not _bot_loop:
+    if not BOT_TOKEN or not bot_module._bot_loop:
         return False
     try:
         future = asyncio.run_coroutine_threadsafe(
             send_notification(chat_id, text, button_url),
-            _bot_loop,
+            bot_module._bot_loop,
         )
         return future.result(timeout=15)
     except Exception as e:
         log.warning("TG notify failed for %s: %s", chat_id, e)
         return False
+
+
+async def notify_telegram_async(chat_id: int, text: str, button_url: str = None) -> bool:
+    """Non-blocking wrapper: runs notify_telegram in a thread pool."""
+    return await asyncio.to_thread(notify_telegram, chat_id, text, button_url)
 
 
 def extract_product_name(text: str) -> str:
@@ -119,21 +125,34 @@ async def poll_channel():
         log.info("Baseline: last message id=%d", last_seen_id)
     except Exception as e:
         log.error("Failed to get baseline: %s", e)
-        last_seen_id = 0
+        # Don't set last_seen_id=0 — that would process ALL old messages.
+        # Instead, set to a very high number so we only get truly new messages.
+        # On next successful poll, we'll catch up from the latest.
+        last_seen_id = 999999999
 
     while True:
         await asyncio.sleep(POLL_INTERVAL)
         try:
-            # Fetch messages newer than last_seen_id
-            messages = await client.get_messages(
-                CHANNEL, min_id=last_seen_id, limit=20
-            )
+            # Fetch ALL messages newer than last_seen_id (paginate if >100)
+            all_new = []
+            offset_id = 0
+            while True:
+                batch = await client.get_messages(
+                    CHANNEL, min_id=last_seen_id, max_id=offset_id, limit=100
+                )
+                if not batch:
+                    break
+                all_new.extend(batch)
+                offset_id = batch[-1].id
+                if len(batch) < 100:
+                    break
 
-            if not messages:
+            if not all_new:
                 continue
 
             # Process new messages (oldest first)
-            for msg in reversed(messages):
+            all_new.reverse()
+            for msg in all_new:
                 if msg.id <= last_seen_id:
                     continue
 
@@ -185,7 +204,7 @@ async def poll_channel():
                 notified_count = 0
                 all_bark = db.get_all_bark_urls()
                 for chat_id in notified:
-                    if notify_telegram(chat_id, tg_msg, button_url=order_url):
+                    if await notify_telegram_async(chat_id, tg_msg, button_url=order_url):
                         notified_count += 1
                     user_bark = all_bark.get(chat_id)
                     if user_bark:
@@ -224,7 +243,7 @@ async def health_check_loop():
                 log.warning("Health check: disconnected! attempt=%d", consecutive_failures)
                 if consecutive_failures >= 2:
                     notify_bark("AKILE 監控斷線！", "正在嘗試重連...")
-                    notify_telegram(ADMIN_CHAT_ID, "<b>監控告警</b>\n連接斷開，正在重連...\n\n聯繫管理員：@DanersAka")
+                    await notify_telegram_async(ADMIN_CHAT_ID, "<b>監控告警</b>\n連接斷開，正在重連...\n\n聯繫管理員：@DanersAka")
                 try:
                     await client.connect()
                     me = await client.get_me()
@@ -246,7 +265,7 @@ async def health_check_loop():
             log.warning("Health check failed: %s (attempt=%d)", e, consecutive_failures)
             if consecutive_failures >= 3:
                 notify_bark("AKILE 監控失效！", f"錯誤: {e}")
-                notify_telegram(
+                await notify_telegram_async(
                     ADMIN_CHAT_ID,
                     f"<b>監控嚴重告警</b>\n\n連續 {consecutive_failures} 次失敗。\n錯誤: <code>{e}</code>\n\n聯繫管理員：@DanersAka",
                 )
@@ -280,6 +299,15 @@ async def main():
         bot_thread = threading.Thread(target=_run_bot, daemon=True)
         bot_thread.start()
         log.info("Bot command handler started in background")
+        # Wait for bot framework to initialize (max 15s)
+        for _ in range(30):
+            if bot_module._bot_loop is not None:
+                break
+            await asyncio.sleep(0.5)
+        if bot_module._bot_loop:
+            log.info("Bot framework ready")
+        else:
+            log.warning("Bot framework not ready after 15s, notifications may fail")
 
     # Connect Telethon
     await client.connect()
