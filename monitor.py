@@ -17,7 +17,7 @@ import requests
 from telethon import TelegramClient
 
 from db import db
-from bot import bot_poll_loop
+from bot import bot_poll_loop, send_notification, _bot_loop
 
 # ── Logging ──────────────────────────────────────────────
 logging.basicConfig(
@@ -81,26 +81,17 @@ def notify_bark_url(bark_url: str, title: str, body: str, url: str = None):
 
 
 def notify_telegram(chat_id: int, text: str, button_url: str = None) -> bool:
-    if not BOT_TOKEN:
+    """Send notification via python-telegram-bot framework (cross-thread)."""
+    if not BOT_TOKEN or not _bot_loop:
         return False
-    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-    if button_url:
-        payload["reply_markup"] = json.dumps({
-            "inline_keyboard": [[{"text": "立即下單", "url": button_url}]]
-        })
     try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json=payload,
-            timeout=10,
+        future = asyncio.run_coroutine_threadsafe(
+            send_notification(chat_id, text, button_url),
+            _bot_loop,
         )
-        if resp.status_code == 200:
-            return True
-        else:
-            log.warning("TG notify failed for %s (%d)", chat_id, resp.status_code)
-            return False
+        return future.result(timeout=15)
     except Exception as e:
-        log.error("TG notify error for %s: %s", chat_id, e)
+        log.warning("TG notify failed for %s: %s", chat_id, e)
         return False
 
 

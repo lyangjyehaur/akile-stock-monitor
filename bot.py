@@ -5,6 +5,7 @@ Uses python-telegram-bot v20+ framework for robust command handling.
 Runs in a separate thread/event loop from the main polling monitor.
 """
 
+import asyncio
 import logging
 import time
 from telegram import Update
@@ -348,17 +349,19 @@ async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _reply(update, "\n".join(lines))
 
 
-# ── Public notification function ─────────────────────────
-async def send_notification(bot, chat_id: int, text: str, button_url: str = None):
-    """Send a notification to a user. Called by monitor.py."""
+async def send_notification(chat_id: int, text: str, button_url: str = None):
+    """Send a notification to a user. Called by monitor.py via run_coroutine_threadsafe."""
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    if not _bot_instance:
+        log.warning("send_notification: bot instance not ready")
+        return False
     reply_markup = None
     if button_url:
         reply_markup = InlineKeyboardMarkup(
             [[InlineKeyboardButton(text="立即下單", url=button_url)]]
         )
     try:
-        await bot.send_message(
+        await _bot_instance.send_message(
             chat_id=chat_id,
             text=text,
             parse_mode=ParseMode.HTML,
@@ -370,11 +373,17 @@ async def send_notification(bot, chat_id: int, text: str, button_url: str = None
         return False
 
 
+# Module-level state for cross-thread access
+_bot_instance = None
+_bot_loop = None
+
+
 # ── Bot poll loop (entry point for monitor.py) ───────────
 async def bot_poll_loop(token: str, admin_chat_id: int):
     """Start the bot application with python-telegram-bot framework.
     This function runs forever in its own event loop (separate thread).
     """
+    global _bot_instance, _bot_loop
     log.info("Bot poll loop started (framework)")
 
     app = Application.builder().token(token).build()
@@ -403,9 +412,10 @@ async def bot_poll_loop(token: str, admin_chat_id: int):
     await app.initialize()
     await app.start()
     await app.updater.start_polling(drop_pending_updates=True)
+    _bot_instance = app.bot
+    _bot_loop = asyncio.get_event_loop()
     log.info("Bot framework polling started")
 
     # Keep running forever
-    import asyncio
     while True:
         await asyncio.sleep(3600)
