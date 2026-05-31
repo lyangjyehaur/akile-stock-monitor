@@ -188,7 +188,8 @@ async def poll_channel():
                 tg_msg = (
                     f"<b>AKILE 補貨通知</b>\n\n"
                     f"<b>產品:</b> {product}\n"
-                    f"<b>匹配:</b> {', '.join(matched_keywords)}"
+                    f"<b>匹配:</b> {', '.join(matched_keywords)}\n\n"
+                    f"<pre>{text.strip()}</pre>"
                 )
                 notified_count = 0
                 all_bark = db.get_all_bark_urls()
