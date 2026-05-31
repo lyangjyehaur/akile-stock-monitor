@@ -3,11 +3,10 @@
 AKILE Stock Monitor — multi-user Telegram channel monitor.
 
 Telethon listens to @akileStock in real-time.
-python-telegram-bot handles user commands.
+Bot API handles user subscriptions (/subscribe, /list, etc).
 When a message matches, all matching subscribers get notified.
 """
 
-import asyncio
 import json
 import logging
 from pathlib import Path
@@ -17,7 +16,7 @@ import requests
 from telethon import TelegramClient, events
 
 from db import db
-from bot import create_bot_app, send_notification
+from bot import bot_poll_loop
 
 # ── Logging ──────────────────────────────────────────────
 logging.basicConfig(
@@ -54,7 +53,7 @@ ADMIN_CHAT_ID = int(cfg["notify"]["tg_chat_id"])
 client = TelegramClient(SESSION, API_ID, API_HASH)
 
 
-# ── Bark helpers (sync, called via to_thread) ───────────
+# ── Notification helpers ─────────────────────────────────
 def notify_bark(title: str, body: str, url: str = None):
     """Send push notification via Bark (admin only)."""
     if not BARK_URL:
@@ -81,8 +80,33 @@ def notify_bark_url(bark_url: str, title: str, body: str, url: str = None):
         log.error("Bark error for %s: %s", bark_url[:30], e)
 
 
-# ── Product name extraction ─────────────────────────────
+def notify_telegram(chat_id: int, text: str, button_url: str = None) -> bool:
+    """Send message to a specific user via Bot API. Optionally attach an inline button."""
+    if not BOT_TOKEN:
+        return False
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if button_url:
+        payload["reply_markup"] = json.dumps({
+            "inline_keyboard": [[{"text": "立即下單", "url": button_url}]]
+        })
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json=payload,
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return True
+        else:
+            log.warning("TG notify failed for %s (%d)", chat_id, resp.status_code)
+            return False
+    except Exception as e:
+        log.error("TG notify error for %s: %s", chat_id, e)
+        return False
+
+
 def extract_product_name(text: str) -> str:
+    """Try to extract product name from message text."""
     for line in text.split("\n"):
         line = line.strip()
         if not line:
@@ -94,19 +118,17 @@ def extract_product_name(text: str) -> str:
     return text[:50]
 
 
-# ── Telethon event handler ──────────────────────────────
-_bot_app = None  # Set in main()
-
-
 @client.on(events.NewMessage(chats=CHANNEL))
 async def handler(event):
     text = event.raw_text or ""
     text_lower = text.lower()
 
+    # Get all subscriptions from DB
     subs_map = db.get_all_subscriptions_map()
     if not subs_map:
         return
 
+    # Find matching keywords
     matched_keywords = set()
     for kw in subs_map:
         if kw in text_lower:
@@ -118,6 +140,7 @@ async def handler(event):
     product = extract_product_name(text)
     log.info("MATCH! product=%s keywords=%s", product, matched_keywords)
 
+    # Extract order URL from inline buttons
     order_url = None
     if event.message.buttons:
         for row in event.message.buttons:
@@ -128,46 +151,40 @@ async def handler(event):
             if order_url:
                 break
 
+    # Collect all unique chat_ids to notify
     notified = set()
     for kw in matched_keywords:
         for chat_id in subs_map[kw]:
             notified.add(chat_id)
 
-    # Fire as background task
-    asyncio.create_task(
-        _send_notifications(product, matched_keywords, order_url, notified)
-    )
-
-
-async def _send_notifications(product, matched_keywords, order_url, notified):
-    """Background task: send all notifications for a restock event."""
+    # Send Telegram notifications with rate limiting
     tg_msg = (
         f"<b>AKILE 補貨通知</b>\n\n"
         f"<b>產品:</b> {product}\n"
         f"<b>匹配:</b> {', '.join(matched_keywords)}"
     )
     notified_count = 0
+    # Get all Bark URLs for matching users
     all_bark = db.get_all_bark_urls()
-
     for chat_id in notified:
-        # Telegram via framework (async, rate-limited by framework)
-        ok = await send_notification(_bot_app.bot, chat_id, tg_msg, button_url=order_url)
-        if ok:
+        if notify_telegram(chat_id, tg_msg, button_url=order_url):
             notified_count += 1
-        # Bark for user
+        # Send Bark to user if they set one
         user_bark = all_bark.get(chat_id)
         if user_bark:
-            await asyncio.to_thread(notify_bark_url, user_bark, "AKILE 補貨！", product, order_url)
-        await asyncio.sleep(0.05)  # extra rate limit safety
+            notify_bark_url(user_bark, "AKILE 補貨！", f"{product}", url=order_url)
+        # Telegram rate limit: ~30 msg/sec, we stay safe at ~20/sec
+        await asyncio.sleep(0.05)
 
     # Bark for admin
     bark_body = f"{product} 補貨！"
     if order_url:
         bark_body += f"\n{order_url}"
-    await asyncio.to_thread(notify_bark, "AKILE 補貨！", bark_body, order_url)
+    notify_bark("AKILE 補貨！", bark_body, url=order_url)
 
-    log.info("Notified %d users for %s", notified_count, product)
+    log.info("Notified %d users", len(notified))
 
+    # Log event to database
     db.log_restock_event(
         product=product,
         matched_kw=", ".join(matched_keywords),
@@ -176,8 +193,8 @@ async def _send_notifications(product, matched_keywords, order_url, notified):
     )
 
 
-# ── Health check ─────────────────────────────────────────
 async def health_check_loop():
+    """Periodically check Telethon session health. Alert admin if broken."""
     consecutive_failures = 0
     while True:
         await asyncio.sleep(300)  # every 5 minutes
@@ -186,10 +203,8 @@ async def health_check_loop():
                 consecutive_failures += 1
                 log.warning("Health check: client disconnected! attempt=%d", consecutive_failures)
                 if consecutive_failures >= 2:
-                    await asyncio.to_thread(notify_bark, "AKILE 監控斷線！", "Telethon 連接已斷開，正在嘗試重連...")
-                    await asyncio.to_thread(
-                        notify_bark_url, BARK_URL, "AKILE 監控斷線！", "Telethon 連接已斷開，正在嘗試重連..."
-                    ) if BARK_URL else None
+                    notify_bark("AKILE 監控斷線！", "Telethon 連接已斷開，正在嘗試重連...")
+                    notify_telegram(ADMIN_CHAT_ID, "<b>監控告警</b>\nTelethon 連接斷開，正在重連...\n\n聯繫管理員：@DanersAka")
                 try:
                     await client.connect()
                     me = await client.get_me()
@@ -198,11 +213,12 @@ async def health_check_loop():
                 except Exception as re:
                     log.error("Reconnect failed: %s", re)
             else:
+                # Deep check: actually call the API
                 me = await client.get_me()
                 if not me:
                     raise Exception("get_me returned None")
                 consecutive_failures = 0
-                # WAL checkpoint
+                # Periodic WAL checkpoint (once per hour via this 5-min loop)
                 try:
                     db._get_conn().execute("PRAGMA wal_checkpoint(PASSIVE)")
                 except Exception:
@@ -211,26 +227,19 @@ async def health_check_loop():
             consecutive_failures += 1
             log.warning("Health check failed: %s (attempt=%d)", e, consecutive_failures)
             if consecutive_failures >= 3:
-                await asyncio.to_thread(notify_bark, "AKILE 監控失效！", f"監聽連線可能已過期，錯誤: {e}")
-                # Admin notification via bot framework
-                if _bot_app:
-                    await send_notification(
-                        _bot_app.bot, ADMIN_CHAT_ID,
-                        f"<b>監控嚴重告警</b>\n\n"
-                        f"頻道監聽連線失效，連續 {consecutive_failures} 次檢查失敗。\n"
-                        f"錯誤: <code>{e}</code>\n\n"
-                        f"需要重新授權監聽帳號。\n\n"
-                        f"聯繫管理員：@DanersAka",
-                    )
+                notify_bark("AKILE 監控失效！", f"監聽連線可能已過期，錯誤: {e}")
+                notify_telegram(ADMIN_CHAT_ID,
+                    f"<b>監控嚴重告警</b>\n\n"
+                    f"頻道監聽連線失效，連續 {consecutive_failures} 次檢查失敗。\n"
+                    f"錯誤: <code>{e}</code>\n\n"
+                    f"需要重新授權監聽帳號。\n\n"
+                    f"聯繫管理員：@DanersAka")
 
 
-# ── Main ─────────────────────────────────────────────────
 async def main():
-    global _bot_app
-
     log.info("Starting AKILE Stock Monitor (multi-user)")
 
-    # Auto-subscribe admin
+    # Auto-subscribe admin to initial keywords from config
     initial_kw = cfg["monitor"].get("keywords", [])
     if initial_kw:
         db.upsert_user(ADMIN_CHAT_ID, first_name="Admin")
@@ -239,37 +248,34 @@ async def main():
             db.add_subscription(ADMIN_CHAT_ID, kw)
         log.info("Admin auto-subscribed to: %s", initial_kw)
 
-    # Auto-set admin Bark URL
+    # Auto-set admin's Bark URL from config
     if BARK_URL:
         db.upsert_user(ADMIN_CHAT_ID)
         db.set_bark_url(ADMIN_CHAT_ID, BARK_URL)
         log.info("Admin Bark URL synced from config")
-
-    # Create bot application
-    if BOT_TOKEN:
-        _bot_app = create_bot_app(BOT_TOKEN)
-        await _bot_app.initialize()
-        await _bot_app.start()
-        await _bot_app.updater.start_polling(drop_pending_updates=True)
-        log.info("Bot polling started")
-    else:
-        log.warning("No bot token — bot commands disabled")
 
     # Connect Telethon
     await client.connect()
     me = await client.get_me()
     log.info("Logged in as: %s (id=%s)", me.first_name, me.id)
     log.info("Monitoring channel: @%s", CHANNEL)
+    log.info("Bot token: %s", "configured" if BOT_TOKEN else "NOT SET")
     log.info("Admin chat_id: %s", ADMIN_CHAT_ID)
     log.info("Waiting for restock messages...")
 
-    # Run everything concurrently
+    # Run Telethon monitor + bot poll loop + health check concurrently
     tasks = [
         client.run_until_disconnected(),
         health_check_loop(),
     ]
+    if BOT_TOKEN:
+        tasks.append(bot_poll_loop(BOT_TOKEN, ADMIN_CHAT_ID))
+        log.info("Bot poll loop task added")
+    log.info("Health check loop added (every 5min)")
+
     await asyncio.gather(*tasks)
 
 
 if __name__ == "__main__":
+    import asyncio
     client.loop.run_until_complete(main())
