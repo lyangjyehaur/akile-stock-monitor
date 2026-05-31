@@ -1,17 +1,33 @@
 # AKILE Stock Monitor
 
-Telegram 頻道即時補貨監控 Bot。監聽 [@akileStock](https://t.me/akileStock) 頻道，匹配關鍵字後即時通知訂閱用戶。
+Telegram 頻道補貨監控 Bot。監聽 [@akileStock](https://t.me/akileStock) 頻道，匹配關鍵字後即時通知訂閱用戶。
 
 ## 功能
 
-- **即時監聽** — Telethon MTProto 連接，秒級延遲
+- **輪詢監聽** — 每 10 秒檢查頻道新消息，延遲可接受
 - **多用戶訂閱** — 用戶自行訂閱/取消關鍵字
-- **多通道通知** — Telegram Bot + Bark（iPhone 推送）
+- **多通道通知** — Telegram Bot（帶下單按鈕）+ Bark（iPhone 推送）
 - **管理員指令** — 廣播、健康檢查、數據查看
 - **自動備份** — SQLite + session 文件每日備份到 Cloudflare R2
-- **心跳檢測** — 5 分鐘一次，session 失效自動告警
+- **心跳檢測** — 5 分鐘一次，連接失效自動告警
 - **進程監控** — watchdog 每 5 分鐘檢查，掛了自動重啟
-- **異步架構** — python-telegram-bot v20+ 框架，Telethon 與 Bot 共用 event loop
+- **python-telegram-bot 框架** — Bot 指令和通知統一用框架處理
+
+## 架構
+
+```
+monitor.py (主線程)
+├── poll_channel()          — 每 10 秒輪詢 @akileStock（Telethon get_messages）
+├── notify_telegram()       — 跨線程調用框架發通知（含下單按鈕）
+├── notify_bark()           — Bark 推送（raw requests，獨立通道）
+├── health_check_loop()     — 每 5 分鐘心跳檢測
+└── bot thread (獨立線程)
+    └── python-telegram-bot Application
+        ├── CommandHandler 處理所有用戶指令
+        └── send_notification() — 框架構建 InlineKeyboard
+```
+
+兩層完全解耦：bot 框架的任何問題不影響輪詢監聽和通知推送。
 
 ## Bot 指令
 
@@ -62,17 +78,22 @@ cp config.example.json config.json
 # 編輯 config.json 填入你的配置
 ```
 
-### 4. Telethon 授權
+### 4. 安裝依賴
+
+```bash
+pip3 install telethon requests "python-telegram-bot>=20,<22" boto3
+```
+
+### 5. Telethon 授權
 
 在服務器上執行（需要交互輸入手機號和驗證碼）：
 
 ```bash
-pip3 install telethon requests "python-telegram-bot>=20,<22" boto3
 python3 step1.py   # 發送驗證碼
 python3 sign_in.py # 輸入驗證碼完成登入
 ```
 
-### 5. 部署服務
+### 6. 部署服務
 
 ```bash
 # 配置 systemd
@@ -92,7 +113,7 @@ echo "*/5 * * * * /root/akile-monitor/watchdog.sh >> /root/akile-monitor/watchdo
 
 ```
 akile-monitor/
-├── monitor.py              # 主程序（Telethon 監聽 + 心跳 + 通知）
+├── monitor.py              # 主程序（輪詢監聽 + 心跳 + 通知）
 ├── bot.py                  # Bot 指令處理（python-telegram-bot 框架）
 ├── db.py                   # SQLite 數據庫層
 ├── config.json             # 配置文件（git ignored）
@@ -100,7 +121,6 @@ akile-monitor/
 ├── r2.json                 # R2 憑證（git ignored）
 ├── akile-monitor.service   # systemd 服務文件
 ├── backup_r2.py            # R2 備份腳本
-├── backup.sh               # 本地備份腳本
 ├── watchdog.sh             # 進程監控腳本
 ├── Dockerfile              # Docker 部署（可選）
 └── docker-compose.yml
@@ -146,11 +166,9 @@ akile-monitor/
 
 訂閱用戶可通過以下通道接收補貨通知：
 
-1. **Telegram 私訊** — 所有訂閱用戶自動接收
+1. **Telegram 私訊** — 所有訂閱用戶自動接收，含「立即下單」按鈕
 2. **Bark 推送** — 用戶自行設定（`/bark URL`），直接彈到 iPhone 鎖屏
 3. **管理員 Bark** — 從 `config.json` 讀取，每次補貨都會收到
-
-通知消息包含產品名稱和「立即下單」按鈕，點擊直接跳轉到下單頁面。
 
 ## 備份與恢復
 
