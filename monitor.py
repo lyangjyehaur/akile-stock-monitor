@@ -280,9 +280,12 @@ async def main():
 
     # Start bot command handler in background thread
     if BOT_TOKEN:
-        bot_thread = threading.Thread(
-            target=bot_poll_loop, args=(BOT_TOKEN, ADMIN_CHAT_ID), daemon=True
-        )
+        def _run_bot():
+            import asyncio as _aio
+            _loop = _aio.new_event_loop()
+            _aio.set_event_loop(_loop)
+            _loop.run_until_complete(bot_poll_loop(BOT_TOKEN, ADMIN_CHAT_ID))
+        bot_thread = threading.Thread(target=_run_bot, daemon=True)
         bot_thread.start()
         log.info("Bot command handler started in background")
 
@@ -302,4 +305,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    client.loop.run_until_complete(main())
